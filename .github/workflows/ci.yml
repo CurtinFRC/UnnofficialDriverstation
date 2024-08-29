@@ -55,7 +55,8 @@ jobs:
             libgtk-3-dev \
             librsvg2-dev \
             libssl-dev \
-            libwebkit2gtk-4.0-dev \ wget
+            libwebkit2gtk-4.0-dev \
+            wget
       - name: Install
         run: pnpm install
       - name: Build
