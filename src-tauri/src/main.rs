@@ -1,15 +1,16 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::fmt;
+use std::{fmt, sync::Mutex};
 
 use ds::{DriverStation, Mode};
 use serde::{
     de::{self, Visitor},
     Deserialize, Serialize,
 };
+use tauri::State;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum AllianceColour {
     Red,
     Blue,
@@ -75,31 +76,48 @@ pub struct Packet {
     team_num: u32,
 }
 
+pub struct DriverStationState {
+    ds: DriverStation,
+    team_num: u32,
+    position: u8,
+    colour: AllianceColour,
+}
+
 #[tauri::command]
-fn send_packet(packet: Packet) {
+fn send_packet(packet: Packet, connection: State<Mutex<DriverStationState>>) {
     assert!(packet.position < 4);
-    let mut connection;
-    match packet.colour {
-        AllianceColour::Red => {
-            connection =
-                DriverStation::new_team(packet.team_num, ds::Alliance::new_red(packet.position))
-        }
-        AllianceColour::Blue => {
-            connection =
-                DriverStation::new_team(packet.team_num, ds::Alliance::new_blue(packet.position))
+
+    let state = &mut connection.lock().unwrap();
+    let change_team_num = state.team_num != packet.team_num;
+    let change_position = state.position != packet.position;
+    let change_colour = state.colour != packet.colour;
+    let ds = &mut state.ds;
+
+    if change_team_num {
+        ds.set_team_number(packet.team_num);
+    }
+
+    if change_colour || change_position {
+        match packet.colour {
+            AllianceColour::Red => {
+                ds.set_alliance(ds::Alliance::new_red(packet.position));
+            }
+            AllianceColour::Blue => {
+                ds.set_alliance(ds::Alliance::new_blue(packet.position));
+            }
         }
     }
 
     match packet.state {
-        RobotState::Enabled => connection.enable(),
-        RobotState::Disabled => connection.disable(),
+        RobotState::Enabled => ds.enable(),
+        RobotState::Disabled => ds.disable(),
         RobotState::Estopped => {
-            connection.estop();
+            ds.estop();
             panic!("ESTOPPED HOLY HELL");
         }
     }
 
-    connection.set_mode(packet.mode.0);
+    ds.set_mode(packet.mode.0);
 }
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -109,10 +127,13 @@ fn greet(name: &str) -> String {
 }
 
 fn main() {
-    let connection = DriverStation::new_team(9999, ds::Alliance::new_red(0));
-
     tauri::Builder::default()
-        .manage(connection)
+        .manage(Mutex::new(DriverStationState {
+            ds: DriverStation::new_team(9999, ds::Alliance::new_red(0)),
+            colour: AllianceColour::Red,
+            position: 0,
+            team_num: 9999,
+        }))
         .invoke_handler(tauri::generate_handler![greet])
         .invoke_handler(tauri::generate_handler![send_packet])
         .run(tauri::generate_context!())
