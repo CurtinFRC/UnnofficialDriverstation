@@ -132,6 +132,11 @@ fn greet(name: &str) -> String {
 }
 
 fn main() {
+    #[cfg(not(target_os = "linux"))]
+    {
+        panic!("Erm what the sigma use the official DS.")
+    }
+
     tauri::Builder::default()
         .manage(Mutex::new(DriverStationState {
             ds: DriverStation::new_team(9999, ds::Alliance::new_red(0)),
