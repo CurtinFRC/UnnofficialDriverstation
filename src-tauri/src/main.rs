@@ -120,6 +120,11 @@ fn send_packet(packet: Packet, connection: State<Mutex<DriverStationState>>) {
     ds.set_mode(packet.mode.0);
 }
 
+#[tauri::command]
+fn restart_code(state: State<Mutex<DriverStationState>>) {
+    state.lock().unwrap().ds.restart_code();
+}
+
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -135,7 +140,7 @@ fn main() {
             team_num: 9999,
         }))
         .invoke_handler(tauri::generate_handler![greet])
-        .invoke_handler(tauri::generate_handler![send_packet])
+        .invoke_handler(tauri::generate_handler![send_packet, restart_code])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
