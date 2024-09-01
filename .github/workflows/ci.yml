@@ -43,6 +43,7 @@ jobs:
             librsvg2-dev \
             libssl-dev \
             libwebkit2gtk-4.0-dev \
+            libudev-dev \
             wget
       - name: Install
         run: pnpm install
