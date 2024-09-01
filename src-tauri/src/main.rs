@@ -207,7 +207,7 @@ fn greet(name: &str) -> String {
 const LAST_PACKET: Mutex<Packet> = Mutex::new(Packet {
     colour: AllianceColour::Red,
     mode: RobotMode(Mode::Teleoperated),
-    position: 0,
+    position: 1,
     state: RobotState::Disabled,
     team_num: 9999,
 });
@@ -215,7 +215,7 @@ const LAST_PACKET: Mutex<Packet> = Mutex::new(Packet {
 const DRIVERSTATION_STATE: Mutex<DriverStationState> = Mutex::new(DriverStationState {
     ds: None,
     colour: AllianceColour::Red,
-    position: 0,
+    position: 1,
     team_num: 9999,
 });
 
@@ -241,7 +241,7 @@ fn main() {
 
             LAST_PACKET.lock().unwrap().team_num = team_num;
             DRIVERSTATION_STATE.lock().unwrap().ds =
-                Some(DriverStation::new_team(team_num, ds::Alliance::new_red(0)));
+                Some(DriverStation::new_team(team_num, ds::Alliance::new_red(1)));
             DRIVERSTATION_STATE.lock().unwrap().team_num = team_num;
 
             app.manage(DRIVERSTATION_STATE);
