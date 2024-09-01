@@ -1,7 +1,14 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::{fmt, fs::File, io::Write, sync::Mutex};
+use std::{
+    fmt,
+    fs::File,
+    io::Write,
+    sync::{Mutex, MutexGuard},
+    thread,
+    time::Duration,
+};
 
 use ds::{DriverStation, Mode};
 use serde::{
@@ -77,10 +84,49 @@ pub struct Packet {
 }
 
 pub struct DriverStationState {
-    ds: DriverStation,
+    ds: Option<DriverStation>,
     team_num: u32,
     position: u8,
     colour: AllianceColour,
+}
+
+#[tauri::command]
+fn send_packet_no_last(
+    packet: MutexGuard<'_, Packet>,
+    mut connection: MutexGuard<'_, DriverStationState>,
+) {
+    assert!(packet.position < 4);
+
+    let change_team_num = connection.team_num != packet.team_num;
+    let change_position = connection.position != packet.position;
+    let change_colour = connection.colour != packet.colour;
+    let ds = &mut connection.ds.as_mut().unwrap();
+
+    if change_team_num {
+        ds.set_team_number(packet.team_num);
+    }
+
+    if change_colour || change_position {
+        match packet.colour {
+            AllianceColour::Red => {
+                ds.set_alliance(ds::Alliance::new_red(packet.position));
+            }
+            AllianceColour::Blue => {
+                ds.set_alliance(ds::Alliance::new_blue(packet.position));
+            }
+        }
+    }
+
+    match packet.state {
+        RobotState::Enabled => ds.enable(),
+        RobotState::Disabled => ds.disable(),
+        RobotState::Estopped => {
+            ds.estop();
+            panic!("ESTOPPED HOLY HELL");
+        }
+    }
+
+    ds.set_mode(packet.mode.0);
 }
 
 #[tauri::command]
@@ -95,7 +141,7 @@ fn send_packet(
     let change_team_num = state.team_num != packet.team_num;
     let change_position = state.position != packet.position;
     let change_colour = state.colour != packet.colour;
-    let ds = &mut state.ds;
+    let ds = &mut state.ds.as_mut().unwrap();
 
     if change_team_num {
         ds.set_team_number(packet.team_num);
@@ -128,7 +174,7 @@ fn send_packet(
 
 #[tauri::command]
 fn restart_code(state: State<Mutex<DriverStationState>>) {
-    state.lock().unwrap().ds.restart_code();
+    state.lock().unwrap().ds.as_mut().unwrap().restart_code();
 }
 
 #[tauri::command]
@@ -158,6 +204,21 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+const LAST_PACKET: Mutex<Packet> = Mutex::new(Packet {
+    colour: AllianceColour::Red,
+    mode: RobotMode(Mode::Teleoperated),
+    position: 0,
+    state: RobotState::Disabled,
+    team_num: 9999,
+});
+
+const DRIVERSTATION_STATE: Mutex<DriverStationState> = Mutex::new(DriverStationState {
+    ds: None,
+    colour: AllianceColour::Red,
+    position: 0,
+    team_num: 9999,
+});
+
 fn main() {
     #[cfg(target_os = "windows")]
     {
@@ -181,19 +242,25 @@ fn main() {
                 }
             };
 
-            app.manage(Mutex::new(DriverStationState {
-                ds: DriverStation::new_team(team_num, ds::Alliance::new_red(0)),
-                colour: AllianceColour::Red,
-                position: 0,
-                team_num,
-            }));
-            app.manage(Mutex::new(Packet {
-                colour: AllianceColour::Red,
-                mode: RobotMode(Mode::Teleoperated),
-                position: 0,
-                state: RobotState::Disabled,
-                team_num,
-            }));
+            LAST_PACKET.lock().unwrap().team_num = team_num;
+            DRIVERSTATION_STATE.lock().unwrap().ds =
+                Some(DriverStation::new_team(team_num, ds::Alliance::new_red(0)));
+            DRIVERSTATION_STATE.lock().unwrap().team_num = team_num;
+
+            app.manage(DRIVERSTATION_STATE);
+            app.manage(LAST_PACKET);
+            app.manage(
+                thread::Builder::new()
+                    .name("background sender".to_string())
+                    .spawn(move || loop {
+                        send_packet_no_last(
+                            LAST_PACKET.lock().unwrap(),
+                            DRIVERSTATION_STATE.lock().unwrap(),
+                        );
+                        thread::sleep(Duration::from_millis(15));
+                    })
+                    .unwrap(),
+            );
 
             Ok(())
         })
