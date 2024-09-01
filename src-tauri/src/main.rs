@@ -90,7 +90,6 @@ pub struct DriverStationState {
     colour: AllianceColour,
 }
 
-#[tauri::command]
 fn send_packet_no_last(
     packet: MutexGuard<'_, Packet>,
     mut connection: MutexGuard<'_, DriverStationState>,
