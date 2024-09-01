@@ -10,7 +10,8 @@ use std::{
     time::Duration,
 };
 
-use ds::{DriverStation, Mode};
+use ds::{DriverStation, JoystickValue, Mode};
+use gilrs::{Axis, Button, Gilrs};
 use serde::{
     de::{self, Visitor},
     Deserialize, Serialize,
@@ -29,6 +30,8 @@ pub enum RobotState {
     Enabled,
     Estopped,
 }
+
+const MODE_FIELDS: &[&str] = &["Teleop", "Auto", "Test"];
 
 #[derive(Debug, Clone)]
 pub struct RobotMode(Mode);
@@ -72,7 +75,6 @@ impl<'de> Deserialize<'de> for RobotMode {
         deserializer.deserialize_identifier(ModeVisitor)
     }
 }
-const MODE_FIELDS: &[&str] = &["Teleop", "Auto", "Test"];
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Packet {
@@ -180,6 +182,32 @@ static DRIVERSTATION_STATE: Mutex<DriverStationState> = Mutex::new(DriverStation
     team_num: 4788,
 });
 
+const AXIS: [Axis; 4] = [
+    Axis::RightStickX,
+    Axis::RightStickY,
+    Axis::LeftStickX,
+    Axis::LeftStickY,
+];
+
+const BUTTONS: [Button; 8] = [
+    Button::South,
+    Button::East,
+    Button::North,
+    Button::West,
+    Button::LeftTrigger,
+    Button::RightTrigger,
+    Button::LeftThumb,
+    Button::RightThumb,
+];
+
+// TODO: Send these
+const _POVS: [Button; 4] = [
+    Button::DPadUp,
+    Button::DPadDown,
+    Button::DPadRight,
+    Button::DPadLeft,
+];
+
 fn main() {
     #[cfg(target_os = "windows")]
     {
@@ -205,7 +233,31 @@ fn main() {
                 let mut ds = DRIVERSTATION_STATE.lock().unwrap();
                 ds.ds = Some(DriverStation::new_team(team_num, ds::Alliance::new_red(1)));
                 ds.team_num = team_num;
-                ds.ds.as_mut().unwrap().set_use_usb(false);
+                let driverstation = ds.ds.as_mut().unwrap();
+                driverstation.set_use_usb(false);
+                driverstation.set_joystick_supplier(|| {
+                    let gilrs = Gilrs::new().unwrap();
+                    let mut out: Vec<Vec<JoystickValue>> = vec![];
+                    for (_id, gamepad) in gilrs.gamepads() {
+                        let mut values: Vec<JoystickValue> = vec![];
+                        for i in BUTTONS.clone() {
+                            values.push(JoystickValue::Button {
+                                id: i as u8,
+                                pressed: gamepad.is_pressed(i),
+                            })
+                        }
+
+                        for i in AXIS.clone() {
+                            values.push(JoystickValue::Axis {
+                                id: i as u8,
+                                value: gamepad.value(i),
+                            })
+                        }
+
+                        out.push(values);
+                    }
+                    return out;
+                });
             }
 
             app.manage(&DRIVERSTATION_STATE);
