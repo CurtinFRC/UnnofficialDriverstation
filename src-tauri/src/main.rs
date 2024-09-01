@@ -10,20 +10,20 @@ use serde::{
 };
 use tauri::State;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub enum AllianceColour {
     Red,
     Blue,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum RobotState {
     Disabled,
     Enabled,
     Estopped,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RobotMode(Mode);
 
 impl Serialize for RobotMode {
@@ -67,13 +67,13 @@ impl<'de> Deserialize<'de> for RobotMode {
 }
 const MODE_FIELDS: &[&str] = &["Teleop", "Auto", "Test"];
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Packet {
-    colour: AllianceColour,
-    position: u8,
-    state: RobotState,
-    mode: RobotMode,
-    team_num: u32,
+    pub colour: AllianceColour,
+    pub position: u8,
+    pub state: RobotState,
+    pub mode: RobotMode,
+    pub team_num: u32,
 }
 
 pub struct DriverStationState {
@@ -84,7 +84,11 @@ pub struct DriverStationState {
 }
 
 #[tauri::command]
-fn send_packet(packet: Packet, connection: State<Mutex<DriverStationState>>) {
+fn send_packet(
+    last_packet: State<Mutex<Packet>>,
+    packet: Packet,
+    connection: State<Mutex<DriverStationState>>,
+) {
     assert!(packet.position < 4);
 
     let state = &mut connection.lock().unwrap();
@@ -118,11 +122,34 @@ fn send_packet(packet: Packet, connection: State<Mutex<DriverStationState>>) {
     }
 
     ds.set_mode(packet.mode.0);
+
+    *last_packet.lock().unwrap() = packet;
 }
 
 #[tauri::command]
 fn restart_code(state: State<Mutex<DriverStationState>>) {
     state.lock().unwrap().ds.restart_code();
+}
+
+#[tauri::command]
+fn estop(last_packet: State<Mutex<Packet>>, connection: State<Mutex<DriverStationState>>) {
+    let mut packet = last_packet.lock().unwrap().clone();
+    packet.state = RobotState::Enabled;
+    send_packet(last_packet, packet, connection);
+}
+
+#[tauri::command]
+fn disable(last_packet: State<Mutex<Packet>>, connection: State<Mutex<DriverStationState>>) {
+    let mut packet = last_packet.lock().unwrap().clone();
+    packet.state = RobotState::Disabled;
+    send_packet(last_packet, packet, connection);
+}
+
+#[tauri::command]
+fn enable(last_packet: State<Mutex<Packet>>, connection: State<Mutex<DriverStationState>>) {
+    let mut packet = last_packet.lock().unwrap().clone();
+    packet.state = RobotState::Enabled;
+    send_packet(last_packet, packet, connection);
 }
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -132,7 +159,7 @@ fn greet(name: &str) -> String {
 }
 
 fn main() {
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
     {
         panic!("Erm what the sigma use the official DS.")
     }
@@ -144,8 +171,21 @@ fn main() {
             position: 0,
             team_num: 9999,
         }))
+        .manage(Mutex::new(Packet {
+            colour: AllianceColour::Red,
+            mode: RobotMode(Mode::Teleoperated),
+            position: 0,
+            state: RobotState::Disabled,
+            team_num: 9999,
+        }))
         .invoke_handler(tauri::generate_handler![greet])
-        .invoke_handler(tauri::generate_handler![send_packet, restart_code])
+        .invoke_handler(tauri::generate_handler![
+            send_packet,
+            restart_code,
+            estop,
+            enable,
+            disable
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
