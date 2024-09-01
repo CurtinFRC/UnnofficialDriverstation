@@ -208,14 +208,14 @@ static LAST_PACKET: Mutex<Packet> = Mutex::new(Packet {
     mode: RobotMode(Mode::Teleoperated),
     position: 1,
     state: RobotState::Disabled,
-    team_num: 9999,
+    team_num: 4788,
 });
 
 static DRIVERSTATION_STATE: Mutex<DriverStationState> = Mutex::new(DriverStationState {
     ds: None,
     colour: AllianceColour::Red,
     position: 1,
-    team_num: 9999,
+    team_num: 4788,
 });
 
 fn main() {
@@ -233,8 +233,8 @@ fn main() {
             let team_num: u32 = match team_num_string {
                 Ok(string) => string.parse().unwrap(),
                 Err(_) => {
-                    File::create_new(&location).unwrap().write(b"9999").unwrap();
-                    9999
+                    File::create_new(&location).unwrap().write(b"4788").unwrap();
+                    4788
                 }
             };
 
