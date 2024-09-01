@@ -227,12 +227,9 @@ fn main() {
 
     tauri::Builder::default()
         .setup(|app| {
-            let location = app_config_dir(&app.config())
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_string()
-                + "/team_num";
+            let config_dir = app_config_dir(&app.config()).unwrap();
+            let _ = std::fs::create_dir_all(&config_dir);
+            let location = config_dir.to_str().unwrap().to_string() + "/team_num";
             let team_num_string = std::fs::read_to_string(&location);
             let team_num: u32 = match team_num_string {
                 Ok(string) => string.parse().unwrap(),
