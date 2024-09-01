@@ -238,10 +238,19 @@ fn main() {
                 }
             };
 
-            LAST_PACKET.lock().unwrap().team_num = team_num;
-            DRIVERSTATION_STATE.lock().unwrap().ds =
-                Some(DriverStation::new_team(team_num, ds::Alliance::new_red(1)));
-            DRIVERSTATION_STATE.lock().unwrap().team_num = team_num;
+            {
+                LAST_PACKET.lock().unwrap().team_num = team_num;
+                DRIVERSTATION_STATE.lock().unwrap().ds =
+                    Some(DriverStation::new_team(team_num, ds::Alliance::new_red(1)));
+                DRIVERSTATION_STATE.lock().unwrap().team_num = team_num;
+                DRIVERSTATION_STATE
+                    .lock()
+                    .unwrap()
+                    .ds
+                    .as_mut()
+                    .unwrap()
+                    .set_use_usb(false);
+            }
 
             app.manage(&DRIVERSTATION_STATE);
             app.manage(&LAST_PACKET);
@@ -249,10 +258,12 @@ fn main() {
             thread::Builder::new()
                 .name("background sender".to_string())
                 .spawn(move || loop {
-                    send_packet_no_last(
-                        LAST_PACKET.lock().unwrap(),
-                        DRIVERSTATION_STATE.lock().unwrap(),
-                    );
+                    {
+                        send_packet_no_last(
+                            LAST_PACKET.lock().unwrap(),
+                            DRIVERSTATION_STATE.lock().unwrap(),
+                        );
+                    }
                     thread::sleep(Duration::from_millis(15));
                 })
                 .unwrap();
