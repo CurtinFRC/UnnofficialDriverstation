@@ -203,7 +203,7 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
-const LAST_PACKET: Mutex<Packet> = Mutex::new(Packet {
+static LAST_PACKET: Mutex<Packet> = Mutex::new(Packet {
     colour: AllianceColour::Red,
     mode: RobotMode(Mode::Teleoperated),
     position: 1,
@@ -211,7 +211,7 @@ const LAST_PACKET: Mutex<Packet> = Mutex::new(Packet {
     team_num: 9999,
 });
 
-const DRIVERSTATION_STATE: Mutex<DriverStationState> = Mutex::new(DriverStationState {
+static DRIVERSTATION_STATE: Mutex<DriverStationState> = Mutex::new(DriverStationState {
     ds: None,
     colour: AllianceColour::Red,
     position: 1,
@@ -243,20 +243,19 @@ fn main() {
                 Some(DriverStation::new_team(team_num, ds::Alliance::new_red(1)));
             DRIVERSTATION_STATE.lock().unwrap().team_num = team_num;
 
-            app.manage(DRIVERSTATION_STATE);
-            app.manage(LAST_PACKET);
-            app.manage(
-                thread::Builder::new()
-                    .name("background sender".to_string())
-                    .spawn(move || loop {
-                        send_packet_no_last(
-                            LAST_PACKET.lock().unwrap(),
-                            DRIVERSTATION_STATE.lock().unwrap(),
-                        );
-                        thread::sleep(Duration::from_millis(15));
-                    })
-                    .unwrap(),
-            );
+            app.manage(&DRIVERSTATION_STATE);
+            app.manage(&LAST_PACKET);
+
+            thread::Builder::new()
+                .name("background sender".to_string())
+                .spawn(move || loop {
+                    send_packet_no_last(
+                        LAST_PACKET.lock().unwrap(),
+                        DRIVERSTATION_STATE.lock().unwrap(),
+                    );
+                    thread::sleep(Duration::from_millis(15));
+                })
+                .unwrap();
 
             Ok(())
         })
