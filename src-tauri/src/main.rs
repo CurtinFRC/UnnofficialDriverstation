@@ -129,45 +129,7 @@ fn send_packet_no_last(
 }
 
 #[tauri::command]
-fn send_packet(
-    last_packet: State<Mutex<Packet>>,
-    packet: Packet,
-    connection: State<Mutex<DriverStationState>>,
-) {
-    assert!(packet.position < 4);
-
-    let state = &mut connection.lock().unwrap();
-    let change_team_num = state.team_num != packet.team_num;
-    let change_position = state.position != packet.position;
-    let change_colour = state.colour != packet.colour;
-    let ds = &mut state.ds.as_mut().unwrap();
-
-    if change_team_num {
-        ds.set_team_number(packet.team_num);
-    }
-
-    if change_colour || change_position {
-        match packet.colour {
-            AllianceColour::Red => {
-                ds.set_alliance(ds::Alliance::new_red(packet.position));
-            }
-            AllianceColour::Blue => {
-                ds.set_alliance(ds::Alliance::new_blue(packet.position));
-            }
-        }
-    }
-
-    match packet.state {
-        RobotState::Enabled => ds.enable(),
-        RobotState::Disabled => ds.disable(),
-        RobotState::Estopped => {
-            ds.estop();
-            panic!("ESTOPPED HOLY HELL");
-        }
-    }
-
-    ds.set_mode(packet.mode.0);
-
+fn send_packet(last_packet: State<Mutex<Packet>>, packet: Packet) {
     *last_packet.lock().unwrap() = packet;
 }
 
@@ -177,24 +139,24 @@ fn restart_code(state: State<Mutex<DriverStationState>>) {
 }
 
 #[tauri::command]
-fn estop(last_packet: State<Mutex<Packet>>, connection: State<Mutex<DriverStationState>>) {
+fn estop(last_packet: State<Mutex<Packet>>) {
     let mut packet = last_packet.lock().unwrap().clone();
     packet.state = RobotState::Enabled;
-    send_packet(last_packet, packet, connection);
+    send_packet(last_packet, packet);
 }
 
 #[tauri::command]
-fn disable(last_packet: State<Mutex<Packet>>, connection: State<Mutex<DriverStationState>>) {
+fn disable(last_packet: State<Mutex<Packet>>) {
     let mut packet = last_packet.lock().unwrap().clone();
     packet.state = RobotState::Disabled;
-    send_packet(last_packet, packet, connection);
+    send_packet(last_packet, packet);
 }
 
 #[tauri::command]
-fn enable(last_packet: State<Mutex<Packet>>, connection: State<Mutex<DriverStationState>>) {
+fn enable(last_packet: State<Mutex<Packet>>) {
     let mut packet = last_packet.lock().unwrap().clone();
     packet.state = RobotState::Enabled;
-    send_packet(last_packet, packet, connection);
+    send_packet(last_packet, packet);
 }
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -240,16 +202,10 @@ fn main() {
 
             {
                 LAST_PACKET.lock().unwrap().team_num = team_num;
-                DRIVERSTATION_STATE.lock().unwrap().ds =
-                    Some(DriverStation::new_team(team_num, ds::Alliance::new_red(1)));
-                DRIVERSTATION_STATE.lock().unwrap().team_num = team_num;
-                DRIVERSTATION_STATE
-                    .lock()
-                    .unwrap()
-                    .ds
-                    .as_mut()
-                    .unwrap()
-                    .set_use_usb(false);
+                let mut ds = DRIVERSTATION_STATE.lock().unwrap();
+                ds.ds = Some(DriverStation::new_team(team_num, ds::Alliance::new_red(1)));
+                ds.team_num = team_num;
+                ds.ds.as_mut().unwrap().set_use_usb(false);
             }
 
             app.manage(&DRIVERSTATION_STATE);
