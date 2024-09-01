@@ -1,14 +1,14 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::{fmt, sync::Mutex};
+use std::{fmt, fs::File, io::Write, sync::Mutex};
 
 use ds::{DriverStation, Mode};
 use serde::{
     de::{self, Visitor},
     Deserialize, Serialize,
 };
-use tauri::State;
+use tauri::{api::path::app_config_dir, Manager, State};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub enum AllianceColour {
@@ -165,19 +165,38 @@ fn main() {
     }
 
     tauri::Builder::default()
-        .manage(Mutex::new(DriverStationState {
-            ds: DriverStation::new_team(9999, ds::Alliance::new_red(0)),
-            colour: AllianceColour::Red,
-            position: 0,
-            team_num: 9999,
-        }))
-        .manage(Mutex::new(Packet {
-            colour: AllianceColour::Red,
-            mode: RobotMode(Mode::Teleoperated),
-            position: 0,
-            state: RobotState::Disabled,
-            team_num: 9999,
-        }))
+        .setup(|app| {
+            let location = app_config_dir(&app.config())
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string()
+                + "/team_num";
+            let team_num_string = std::fs::read_to_string(&location);
+            let team_num: u32 = match team_num_string {
+                Ok(string) => string.parse().unwrap(),
+                Err(_) => {
+                    File::create_new(&location).unwrap().write(b"9999").unwrap();
+                    9999
+                }
+            };
+
+            app.manage(Mutex::new(DriverStationState {
+                ds: DriverStation::new_team(team_num, ds::Alliance::new_red(0)),
+                colour: AllianceColour::Red,
+                position: 0,
+                team_num,
+            }));
+            app.manage(Mutex::new(Packet {
+                colour: AllianceColour::Red,
+                mode: RobotMode(Mode::Teleoperated),
+                position: 0,
+                state: RobotState::Disabled,
+                team_num,
+            }));
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![greet])
         .invoke_handler(tauri::generate_handler![
             send_packet,
