@@ -4,8 +4,7 @@
 use std::{fmt, fs::File, io::Write, thread, time::Duration};
 
 use once_cell::sync::Lazy;
-use tauri::async_runtime::Mutex;
-use tokio::sync::MutexGuard;
+use tokio::sync::{RwLock, RwLockWriteGuard};
 
 use ds::{DriverStation, JoystickValue, Mode};
 use gilrs::{Axis, Button, Gilrs};
@@ -91,8 +90,8 @@ pub struct DriverStationState {
 }
 
 fn send_packet_no_last(
-    packet: MutexGuard<'_, Packet>,
-    mut connection: MutexGuard<'_, DriverStationState>,
+    packet: RwLockWriteGuard<'_, Packet>,
+    mut connection: RwLockWriteGuard<'_, DriverStationState>,
 ) {
     assert!(packet.position < 4);
 
@@ -133,17 +132,17 @@ fn send_packet_no_last(
 
 #[tauri::command]
 async fn send_packet(
-    last_packet: State<'_, Lazy<Mutex<Packet>>>,
+    last_packet: State<'_, Lazy<RwLock<Packet>>>,
     packet: Packet,
 ) -> Result<(), ()> {
-    *last_packet.lock().await = packet;
+    *last_packet.write().await = packet;
 
     Ok(())
 }
 
 #[tauri::command]
-async fn restart_code(state: State<'_, Lazy<Mutex<DriverStationState>>>) -> Result<(), ()> {
-    match state.lock().await.ds.as_mut() {
+async fn restart_code(state: State<'_, Lazy<RwLock<DriverStationState>>>) -> Result<(), ()> {
+    match state.write().await.ds.as_mut() {
         Some(ds) => ds.restart_code(),
         None => {
             println!("Can't restart code, DriverStationState doesn't exist yet.");
@@ -155,8 +154,8 @@ async fn restart_code(state: State<'_, Lazy<Mutex<DriverStationState>>>) -> Resu
 }
 
 #[tauri::command]
-async fn estop(last_packet: State<'_, Lazy<Mutex<Packet>>>) -> Result<(), ()> {
-    let mut packet = last_packet.lock().await.clone();
+async fn estop(last_packet: State<'_, Lazy<RwLock<Packet>>>) -> Result<(), ()> {
+    let mut packet = last_packet.write().await.clone();
     packet.state = RobotState::Enabled;
     send_packet(last_packet, packet).await.unwrap();
 
@@ -164,8 +163,8 @@ async fn estop(last_packet: State<'_, Lazy<Mutex<Packet>>>) -> Result<(), ()> {
 }
 
 #[tauri::command]
-async fn disable(last_packet: State<'_, Lazy<Mutex<Packet>>>) -> Result<(), ()> {
-    let mut packet = last_packet.lock().await.clone();
+async fn disable(last_packet: State<'_, Lazy<RwLock<Packet>>>) -> Result<(), ()> {
+    let mut packet = last_packet.write().await.clone();
     packet.state = RobotState::Disabled;
     send_packet(last_packet, packet).await.unwrap();
 
@@ -173,8 +172,8 @@ async fn disable(last_packet: State<'_, Lazy<Mutex<Packet>>>) -> Result<(), ()> 
 }
 
 #[tauri::command]
-async fn enable(last_packet: State<'_, Lazy<Mutex<Packet>>>) -> Result<(), ()> {
-    let mut packet = last_packet.lock().await.clone();
+async fn enable(last_packet: State<'_, Lazy<RwLock<Packet>>>) -> Result<(), ()> {
+    let mut packet = last_packet.write().await.clone();
     packet.state = RobotState::Enabled;
     send_packet(last_packet, packet).await.unwrap();
 
@@ -187,8 +186,8 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
-static LAST_PACKET: Lazy<Mutex<Packet>> = Lazy::new(|| {
-    Mutex::new(Packet {
+static LAST_PACKET: Lazy<RwLock<Packet>> = Lazy::new(|| {
+    RwLock::new(Packet {
         colour: AllianceColour::Red,
         mode: RobotMode(Mode::Teleoperated),
         position: 1,
@@ -197,8 +196,8 @@ static LAST_PACKET: Lazy<Mutex<Packet>> = Lazy::new(|| {
     })
 });
 
-static DRIVERSTATION_STATE: Lazy<Mutex<DriverStationState>> = Lazy::new(|| {
-    Mutex::new(DriverStationState {
+static DRIVERSTATION_STATE: Lazy<RwLock<DriverStationState>> = Lazy::new(|| {
+    RwLock::new(DriverStationState {
         ds: None,
         colour: AllianceColour::Red,
         position: 1,
@@ -263,8 +262,8 @@ fn main() {
             };
 
             tauri::async_runtime::spawn(async move {
-                LAST_PACKET.lock().await.team_num = team_num;
-                let mut ds = DRIVERSTATION_STATE.lock().await;
+                LAST_PACKET.write().await.team_num = team_num;
+                let mut ds = DRIVERSTATION_STATE.write().await;
                 ds.ds = Some(DriverStation::new_team(team_num, ds::Alliance::new_red(1)));
                 ds.team_num = team_num;
                 let driverstation = ds.ds.as_mut().expect("Driverstation should exist.");
@@ -299,7 +298,10 @@ fn main() {
 
             tauri::async_runtime::spawn(async move {
                 loop {
-                    send_packet_no_last(LAST_PACKET.lock().await, DRIVERSTATION_STATE.lock().await);
+                    send_packet_no_last(
+                        LAST_PACKET.write().await,
+                        DRIVERSTATION_STATE.write().await,
+                    );
                     thread::sleep(Duration::from_millis(15));
                 }
             });
