@@ -223,7 +223,10 @@ fn main() {
             let team_num: u32 = match team_num_string {
                 Ok(string) => string.parse().unwrap(),
                 Err(_) => {
-                    File::create_new(&location).unwrap().write(b"4788").unwrap();
+                    File::create_new(&location)
+                        .unwrap()
+                        .write_all(b"4788")
+                        .unwrap();
                     4788
                 }
             };
@@ -240,14 +243,14 @@ fn main() {
                     let mut out: Vec<Vec<JoystickValue>> = vec![];
                     for (_id, gamepad) in gilrs.gamepads() {
                         let mut values: Vec<JoystickValue> = vec![];
-                        for i in BUTTONS.clone() {
+                        for i in BUTTONS {
                             values.push(JoystickValue::Button {
                                 id: i as u8,
                                 pressed: gamepad.is_pressed(i),
                             })
                         }
 
-                        for i in AXIS.clone() {
+                        for i in AXIS {
                             values.push(JoystickValue::Axis {
                                 id: i as u8,
                                 value: gamepad.value(i),
@@ -256,7 +259,7 @@ fn main() {
 
                         out.push(values);
                     }
-                    return out;
+                    out
                 });
             }
 
