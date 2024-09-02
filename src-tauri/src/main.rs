@@ -1,14 +1,11 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::{
-    fmt,
-    fs::File,
-    io::Write,
-    sync::{Mutex, MutexGuard},
-    thread,
-    time::Duration,
-};
+use std::{fmt, fs::File, io::Write, thread, time::Duration};
+
+use once_cell::sync::Lazy;
+use tauri::async_runtime::Mutex;
+use tokio::sync::MutexGuard;
 
 use ds::{DriverStation, JoystickValue, Mode};
 use gilrs::{Axis, Button, Gilrs};
@@ -16,6 +13,7 @@ use serde::{
     de::{self, Visitor},
     Deserialize, Serialize,
 };
+
 use tauri::{api::path::app_config_dir, Manager, State};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -101,7 +99,10 @@ fn send_packet_no_last(
     let change_team_num = connection.team_num != packet.team_num;
     let change_position = connection.position != packet.position;
     let change_colour = connection.colour != packet.colour;
-    let ds = &mut connection.ds.as_mut().unwrap();
+    let ds = &mut match connection.ds.as_mut() {
+        Some(ds) => ds,
+        None => return,
+    };
 
     if change_team_num {
         ds.set_team_number(packet.team_num);
@@ -131,34 +132,53 @@ fn send_packet_no_last(
 }
 
 #[tauri::command]
-fn send_packet(last_packet: State<Mutex<Packet>>, packet: Packet) {
-    *last_packet.lock().unwrap() = packet;
+async fn send_packet(
+    last_packet: State<'_, Lazy<Mutex<Packet>>>,
+    packet: Packet,
+) -> Result<(), ()> {
+    *last_packet.lock().await = packet;
+
+    Ok(())
 }
 
 #[tauri::command]
-fn restart_code(state: State<Mutex<DriverStationState>>) {
-    state.lock().unwrap().ds.as_mut().unwrap().restart_code();
+async fn restart_code(state: State<'_, Lazy<Mutex<DriverStationState>>>) -> Result<(), ()> {
+    match state.lock().await.ds.as_mut() {
+        Some(ds) => ds.restart_code(),
+        None => {
+            println!("Can't restart code, DriverStationState doesn't exist yet.");
+            return Ok(());
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
-fn estop(last_packet: State<Mutex<Packet>>) {
-    let mut packet = last_packet.lock().unwrap().clone();
+async fn estop(last_packet: State<'_, Lazy<Mutex<Packet>>>) -> Result<(), ()> {
+    let mut packet = last_packet.lock().await.clone();
     packet.state = RobotState::Enabled;
-    send_packet(last_packet, packet);
+    send_packet(last_packet, packet).await.unwrap();
+
+    Ok(())
 }
 
 #[tauri::command]
-fn disable(last_packet: State<Mutex<Packet>>) {
-    let mut packet = last_packet.lock().unwrap().clone();
+async fn disable(last_packet: State<'_, Lazy<Mutex<Packet>>>) -> Result<(), ()> {
+    let mut packet = last_packet.lock().await.clone();
     packet.state = RobotState::Disabled;
-    send_packet(last_packet, packet);
+    send_packet(last_packet, packet).await.unwrap();
+
+    Ok(())
 }
 
 #[tauri::command]
-fn enable(last_packet: State<Mutex<Packet>>) {
-    let mut packet = last_packet.lock().unwrap().clone();
+async fn enable(last_packet: State<'_, Lazy<Mutex<Packet>>>) -> Result<(), ()> {
+    let mut packet = last_packet.lock().await.clone();
     packet.state = RobotState::Enabled;
-    send_packet(last_packet, packet);
+    send_packet(last_packet, packet).await.unwrap();
+
+    Ok(())
 }
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
@@ -167,19 +187,23 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
-static LAST_PACKET: Mutex<Packet> = Mutex::new(Packet {
-    colour: AllianceColour::Red,
-    mode: RobotMode(Mode::Teleoperated),
-    position: 1,
-    state: RobotState::Disabled,
-    team_num: 4788,
+static LAST_PACKET: Lazy<Mutex<Packet>> = Lazy::new(|| {
+    Mutex::new(Packet {
+        colour: AllianceColour::Red,
+        mode: RobotMode(Mode::Teleoperated),
+        position: 1,
+        state: RobotState::Disabled,
+        team_num: 4788,
+    })
 });
 
-static DRIVERSTATION_STATE: Mutex<DriverStationState> = Mutex::new(DriverStationState {
-    ds: None,
-    colour: AllianceColour::Red,
-    position: 1,
-    team_num: 4788,
+static DRIVERSTATION_STATE: Lazy<Mutex<DriverStationState>> = Lazy::new(|| {
+    Mutex::new(DriverStationState {
+        ds: None,
+        colour: AllianceColour::Red,
+        position: 1,
+        team_num: 4788,
+    })
 });
 
 const AXIS: [Axis; 4] = [
@@ -216,30 +240,37 @@ fn main() {
 
     tauri::Builder::default()
         .setup(|app| {
-            let config_dir = app_config_dir(&app.config()).unwrap();
+            let config_dir =
+                app_config_dir(&app.config()).expect("Should be able to get config dir.");
             let _ = std::fs::create_dir_all(&config_dir);
-            let location = config_dir.to_str().unwrap().to_string() + "/team_num";
+            let location = config_dir
+                .to_str()
+                .expect("Config directory should be valid string.")
+                .to_string()
+                + "/team_num";
             let team_num_string = std::fs::read_to_string(&location);
             let team_num: u32 = match team_num_string {
-                Ok(string) => string.parse().unwrap(),
+                Ok(string) => string
+                    .parse()
+                    .expect("Saved team number should be a number."),
                 Err(_) => {
                     File::create_new(&location)
-                        .unwrap()
+                        .expect("Team number file doesn't exist, so should be creatable.")
                         .write_all(b"4788")
-                        .unwrap();
+                        .expect("Should be able to write to team number file.");
                     4788
                 }
             };
 
-            {
-                LAST_PACKET.lock().unwrap().team_num = team_num;
-                let mut ds = DRIVERSTATION_STATE.lock().unwrap();
+            tauri::async_runtime::spawn(async move {
+                LAST_PACKET.lock().await.team_num = team_num;
+                let mut ds = DRIVERSTATION_STATE.lock().await;
                 ds.ds = Some(DriverStation::new_team(team_num, ds::Alliance::new_red(1)));
                 ds.team_num = team_num;
-                let driverstation = ds.ds.as_mut().unwrap();
+                let driverstation = ds.ds.as_mut().expect("Driverstation should exist.");
                 driverstation.set_use_usb(false);
                 driverstation.set_joystick_supplier(|| {
-                    let gilrs = Gilrs::new().unwrap();
+                    let gilrs = Gilrs::new().expect("Should be able to load Gilrs.");
                     let mut out: Vec<Vec<JoystickValue>> = vec![];
                     for (_id, gamepad) in gilrs.gamepads() {
                         let mut values: Vec<JoystickValue> = vec![];
@@ -261,23 +292,17 @@ fn main() {
                     }
                     out
                 });
-            }
+            });
 
             app.manage(&DRIVERSTATION_STATE);
             app.manage(&LAST_PACKET);
 
-            thread::Builder::new()
-                .name("background sender".to_string())
-                .spawn(move || loop {
-                    {
-                        send_packet_no_last(
-                            LAST_PACKET.lock().unwrap(),
-                            DRIVERSTATION_STATE.lock().unwrap(),
-                        );
-                    }
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    send_packet_no_last(LAST_PACKET.lock().await, DRIVERSTATION_STATE.lock().await);
                     thread::sleep(Duration::from_millis(15));
-                })
-                .unwrap();
+                }
+            });
 
             Ok(())
         })

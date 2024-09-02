@@ -15,6 +15,8 @@ tauri = { version = "1", features = ["shell-open"] }
 serde = { version = "1", features = ["derive"] }
 ds = { git = "https://github.com/spacey-sooty/ds-rs.git", branch = "updatedeps" }
 gilrs = { version = "0.10.9", features = ["serde", "serde-serialize"] }
+tokio = "1.40.0"
+once_cell = "1.19.0"
 
 [features]
 # This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!
