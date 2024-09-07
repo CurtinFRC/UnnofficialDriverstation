@@ -131,6 +131,41 @@ fn send_packet_no_last(
 }
 
 #[tauri::command]
+async fn last_packet(last_packet: State<'_, Lazy<RwLock<Packet>>>) -> Result<Packet, ()> {
+    Ok(last_packet.read().await.clone()) // FIXME slow
+}
+
+#[tauri::command]
+async fn battery_voltage(state: State<'_, Lazy<RwLock<DriverStationState>>>) -> Result<f32, ()> {
+    Ok(state.read().await.ds.as_ref().unwrap().battery_voltage())
+}
+
+#[tauri::command]
+fn joystick_values() -> Vec<Vec<JoystickValue>> {
+    let gilrs = Gilrs::new().expect("Should be able to load Gilrs.");
+    let mut out: Vec<Vec<JoystickValue>> = vec![];
+    for (_id, gamepad) in gilrs.gamepads() {
+        let mut values: Vec<JoystickValue> = vec![];
+        for i in BUTTONS {
+            values.push(JoystickValue::Button {
+                id: i as u8,
+                pressed: gamepad.is_pressed(i),
+            })
+        }
+
+        for i in AXIS {
+            values.push(JoystickValue::Axis {
+                id: i as u8,
+                value: gamepad.value(i),
+            })
+        }
+
+        out.push(values);
+    }
+    out
+}
+
+#[tauri::command]
 async fn send_packet(
     last_packet: State<'_, Lazy<RwLock<Packet>>>,
     packet: Packet,
@@ -314,7 +349,10 @@ fn main() {
             restart_code,
             estop,
             enable,
-            disable
+            disable,
+            last_packet,
+            battery_voltage,
+            joystick_values,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
