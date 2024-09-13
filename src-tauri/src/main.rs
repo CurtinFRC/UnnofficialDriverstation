@@ -3,7 +3,7 @@
 
 use std::{fmt, fs::File, io::Write, thread, time::Duration};
 
-use once_cell::sync::Lazy;
+use lazy_static::lazy_static;
 use tokio::sync::{RwLock, RwLockWriteGuard};
 
 use ds::{DriverStation, JoystickValue, Mode};
@@ -131,12 +131,12 @@ fn send_packet_no_last(
 }
 
 #[tauri::command]
-async fn last_packet(last_packet: State<'_, Lazy<RwLock<Packet>>>) -> Result<Packet, ()> {
+async fn last_packet(last_packet: State<'_, RwLock<Packet>>) -> Result<Packet, ()> {
     Ok(last_packet.read().await.clone()) // FIXME slow
 }
 
 #[tauri::command]
-async fn battery_voltage(state: State<'_, Lazy<RwLock<DriverStationState>>>) -> Result<f32, ()> {
+async fn battery_voltage(state: State<'_, RwLock<DriverStationState>>) -> Result<f32, ()> {
     Ok(state.read().await.ds.as_ref().unwrap().battery_voltage())
 }
 
@@ -166,17 +166,14 @@ fn joystick_values() -> Vec<Vec<JoystickValue>> {
 }
 
 #[tauri::command]
-async fn send_packet(
-    last_packet: State<'_, Lazy<RwLock<Packet>>>,
-    packet: Packet,
-) -> Result<(), ()> {
+async fn send_packet(last_packet: State<'_, RwLock<Packet>>, packet: Packet) -> Result<(), ()> {
     *last_packet.write().await = packet;
 
     Ok(())
 }
 
 #[tauri::command]
-async fn restart_code(state: State<'_, Lazy<RwLock<DriverStationState>>>) -> Result<(), ()> {
+async fn restart_code(state: State<'_, RwLock<DriverStationState>>) -> Result<(), ()> {
     match state.write().await.ds.as_mut() {
         Some(ds) => ds.restart_code(),
         None => {
@@ -189,7 +186,7 @@ async fn restart_code(state: State<'_, Lazy<RwLock<DriverStationState>>>) -> Res
 }
 
 #[tauri::command]
-async fn estop(last_packet: State<'_, Lazy<RwLock<Packet>>>) -> Result<(), ()> {
+async fn estop(last_packet: State<'_, RwLock<Packet>>) -> Result<(), ()> {
     let mut packet = last_packet.write().await.clone();
     packet.state = RobotState::Enabled;
     send_packet(last_packet, packet).await.unwrap();
@@ -198,7 +195,7 @@ async fn estop(last_packet: State<'_, Lazy<RwLock<Packet>>>) -> Result<(), ()> {
 }
 
 #[tauri::command]
-async fn disable(last_packet: State<'_, Lazy<RwLock<Packet>>>) -> Result<(), ()> {
+async fn disable(last_packet: State<'_, RwLock<Packet>>) -> Result<(), ()> {
     let mut packet = last_packet.write().await.clone();
     packet.state = RobotState::Disabled;
     send_packet(last_packet, packet).await.unwrap();
@@ -207,7 +204,7 @@ async fn disable(last_packet: State<'_, Lazy<RwLock<Packet>>>) -> Result<(), ()>
 }
 
 #[tauri::command]
-async fn enable(last_packet: State<'_, Lazy<RwLock<Packet>>>) -> Result<(), ()> {
+async fn enable(last_packet: State<'_, RwLock<Packet>>) -> Result<(), ()> {
     let mut packet = last_packet.write().await.clone();
     packet.state = RobotState::Enabled;
     send_packet(last_packet, packet).await.unwrap();
@@ -221,24 +218,21 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
-static LAST_PACKET: Lazy<RwLock<Packet>> = Lazy::new(|| {
-    RwLock::new(Packet {
+lazy_static! {
+    static ref LAST_PACKET: RwLock<Packet> = RwLock::new(Packet {
         colour: AllianceColour::Red,
         mode: RobotMode(Mode::Teleoperated),
         position: 1,
         state: RobotState::Disabled,
         team_num: 4788,
-    })
-});
-
-static DRIVERSTATION_STATE: Lazy<RwLock<DriverStationState>> = Lazy::new(|| {
-    RwLock::new(DriverStationState {
+    });
+    static ref DRIVERSTATION_STATE: RwLock<DriverStationState> = RwLock::new(DriverStationState {
         ds: None,
         colour: AllianceColour::Red,
         position: 1,
         team_num: 4788,
-    })
-});
+    });
+}
 
 const AXIS: [Axis; 4] = [
     Axis::RightStickX,
