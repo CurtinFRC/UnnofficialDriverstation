@@ -611,7 +611,7 @@ version = "0.1.0"
 dependencies = [
  "ds",
  "gilrs",
- "once_cell",
+ "lazy_static",
  "serde",
  "tauri",
  "tauri-build",
